@@ -11,10 +11,14 @@ def chat():
     return jsonify({"response": response})
 
 @app.route("/generate-image", methods=["POST"])
+@app.route("/generate-image", methods=["POST"])
 def generate_image():
-    prompt = request.json.get("prompt")
-    image_url = generate_image_from_prompt(prompt)
+    data = request.json
+    prompt = data.get("prompt")
+    identity_image_url = data.get("identity_image_url")  # Optional
+    image_url = generate_image_from_prompt(prompt, identity_image_url)
     return jsonify({"image_url": image_url})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
