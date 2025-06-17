@@ -1,10 +1,10 @@
-# image_generator.py
-
 import os
 from openai import OpenAI
 from openai import OpenAIError
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Securely get API key from Render environment variable
+api_key = os.environ.get("OPENAI_API_KEY")
+client = OpenAI(api_key=api_key)
 
 def generate_image_from_prompt(prompt):
     try:
