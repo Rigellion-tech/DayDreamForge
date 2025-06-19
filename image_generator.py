@@ -1,7 +1,11 @@
 import os
 import requests
+from openai import OpenAI, OpenAIError
 
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
+
 
 def generate_image_from_prompt(prompt, identity_image_url=None):
     try:
@@ -10,11 +14,10 @@ def generate_image_from_prompt(prompt, identity_image_url=None):
         else:
             return generate_with_dalle(prompt)
     except Exception as e:
-        return f"[Error] {e}"
+        return f"[Image Generation Error] {e}"
+
 
 def generate_with_dalle(prompt):
-    from openai import OpenAI, OpenAIError
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     try:
         response = client.images.generate(
             model="dall-e-3",
@@ -26,6 +29,9 @@ def generate_with_dalle(prompt):
         return response.data[0].url
     except OpenAIError as e:
         return f"[OpenAI Error] {e}"
+    except Exception as e:
+        return f"[Unhandled Error in DALL·E] {e}"
+
 
 def generate_with_segmind(prompt, identity_image_url):
     try:
@@ -43,9 +49,15 @@ def generate_with_segmind(prompt, identity_image_url):
             "guidance_scale": 6.5
         }
         response = requests.post("https://api.segmind.com/v1/sd/instantid", json=payload, headers=headers)
+
         if response.status_code == 200:
-            return response.json()["image"]
+            data = response.json()
+            return data["image"]
         else:
-            return f"[Segmind Error] {response.status_code}: {response.text}"
+            # Log error and fall back to DALL·E
+            print(f"[Segmind Error] {response.status_code}: {response.text}")
+            return generate_with_dalle(prompt)
+
     except Exception as e:
-        return f"[Segmind Call Failed] {e}"
+        print(f"[Segmind Call Failed] {e}")
+        return generate_with_dalle(prompt)
