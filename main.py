@@ -1,48 +1,73 @@
-import os
-import json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from chat_agent import get_chat_response
 from image_generator import generate_image_from_prompt
+import os
+import json
 
 app = Flask(__name__)
 CORS(app)
 
-MEMORY_FILE = "chat_memory.json"
+MEMORY_DIR = "chat_memories"
+os.makedirs(MEMORY_DIR, exist_ok=True)
 
-def load_memory():
-    if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "r") as f:
+def memory_file_path(user_id):
+    return os.path.join(MEMORY_DIR, f"{user_id}.json")
+
+def load_memory(user_id):
+    try:
+        with open(memory_file_path(user_id), "r") as f:
             return json.load(f)
-    return []
+    except FileNotFoundError:
+        return []
 
-def save_memory(messages):
-    with open(MEMORY_FILE, "w") as f:
+def save_memory(user_id, messages):
+    with open(memory_file_path(user_id), "w") as f:
         json.dump(messages, f)
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    user_input = request.json.get("message")
-    response = get_chat_response(user_input)
+    data = request.get_json()
+    user_id = data.get("user_id")
+    message = data.get("message")
+
+    if not user_id or not message:
+        return jsonify({"error": "Missing user_id or message"}), 400
+
+    memory = load_memory(user_id)
+    memory.append(f"🧑: {message}")
+
+    response = get_chat_response(message)
+    memory.append(f"🤖: {response}")
+
+    save_memory(user_id, memory)
+
     return jsonify({"response": response})
 
 @app.route("/generate-image", methods=["POST"])
 def generate_image():
     data = request.json
     prompt = data.get("prompt")
-    identity_image_url = data.get("identity_image_url")
+    identity_image_url = data.get("identity_image_url")  # Optional
+
     image_url = generate_image_from_prompt(prompt, identity_image_url)
     return jsonify({"image_url": image_url})
 
 @app.route("/memory", methods=["GET", "POST"])
 def memory():
+    data = request.get_json() if request.method == "POST" else request.args
+    user_id = data.get("user_id")
+
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
     if request.method == "POST":
-        data = request.get_json()
         messages = data.get("messages", [])
-        save_memory(messages)
+        save_memory(user_id, messages)
         return jsonify({"status": "saved", "count": len(messages)})
-    else:
-        return jsonify({"messages": load_memory()})
+
+    messages = load_memory(user_id)
+    return jsonify({"messages": messages})
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
