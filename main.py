@@ -46,12 +46,27 @@ def chat():
 
 @app.route("/generate-image", methods=["POST"])
 def generate_image():
-    data = request.json
+    data = request.get_json()
     prompt = data.get("prompt")
-    identity_image_url = data.get("identity_image_url")  # Optional
+    user_id = data.get("user_id")
+    identity_image_url = data.get("identity_image_url")
 
-    image_url = generate_image_from_prompt(prompt, identity_image_url)
-    return jsonify({"image_url": image_url})
+    if not prompt:
+        return jsonify({"error": "Missing prompt"}), 400
+
+    try:
+        # Check if we should use InstantID
+        if identity_image_url:
+            image_url = generate_image_from_prompt(prompt, identity_image_url)
+        else:
+            image_url = generate_image_from_prompt(prompt)
+
+        if image_url:
+            return jsonify({"image_url": image_url})
+        else:
+            return jsonify({"error": "Image generation failed"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/memory", methods=["GET", "POST"])
 def memory():
@@ -70,4 +85,4 @@ def memory():
     return jsonify({"messages": messages})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)
