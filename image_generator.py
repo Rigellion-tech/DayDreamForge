@@ -1,13 +1,24 @@
 import os
+import time
 import requests
 from openai import OpenAI, OpenAIError
+from collections import defaultdict
 
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
 
+# Rate limiting (basic in-memory for testing)
+last_request_time = defaultdict(float)
+RATE_LIMIT_SECONDS = 10  # seconds between requests per user/session (adjust as needed)
 
-def generate_image_from_prompt(prompt, identity_image_url=None):
+def generate_image_from_prompt(prompt, identity_image_url=None, user_id="global"):
+    now = time.time()
+    if now - last_request_time[user_id] < RATE_LIMIT_SECONDS:
+        return f"[Rate Limit] Please wait {int(RATE_LIMIT_SECONDS - (now - last_request_time[user_id]))} seconds."
+
+    last_request_time[user_id] = now
+
     try:
         if identity_image_url:
             return generate_with_segmind(prompt, identity_image_url)
@@ -15,7 +26,6 @@ def generate_image_from_prompt(prompt, identity_image_url=None):
             return generate_with_dalle(prompt)
     except Exception as e:
         return f"[Image Generation Error] {e}"
-
 
 def generate_with_dalle(prompt):
     try:
@@ -31,7 +41,6 @@ def generate_with_dalle(prompt):
         return f"[OpenAI Error] {e}"
     except Exception as e:
         return f"[Unhandled Error in DALL·E] {e}"
-
 
 def generate_with_segmind(prompt, identity_image_url):
     try:
@@ -52,9 +61,8 @@ def generate_with_segmind(prompt, identity_image_url):
 
         if response.status_code == 200:
             data = response.json()
-            return data["image"]
+            return data.get("image")
         else:
-            # Log error and fall back to DALL·E
             print(f"[Segmind Error] {response.status_code}: {response.text}")
             return generate_with_dalle(prompt)
 
