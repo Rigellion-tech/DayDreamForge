@@ -44,7 +44,8 @@ def chat():
 
     return jsonify({"response": response})
 
-@app.route("/generate-image", methods=["POST"])
+# Updated route and response key for image generation
+@app.route("/image", methods=["POST"])
 def generate_image():
     data = request.get_json()
     prompt = data.get("prompt")
@@ -55,14 +56,13 @@ def generate_image():
         return jsonify({"error": "Missing prompt"}), 400
 
     try:
-        # Check if we should use InstantID
         if identity_image_url:
             image_url = generate_image_from_prompt(prompt, identity_image_url)
         else:
             image_url = generate_image_from_prompt(prompt)
 
         if image_url:
-            return jsonify({"image_url": image_url})
+            return jsonify({"imageUrl": image_url})  # match frontend expectation
         else:
             return jsonify({"error": "Image generation failed"}), 500
     except Exception as e:
