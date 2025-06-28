@@ -83,6 +83,45 @@ def memory():
 
     messages = load_memory(user_id)
     return jsonify({"messages": messages})
+@app.route("/chat/stream")
+def chat_stream():
+    # read user_id and message from query params since EventSource uses GET
+    user_id = request.args.get("user_id")
+    message = request.args.get("message")
+    if not user_id or not message:
+        return ("Missing user_id or message", 400)
+
+    # Re-use your chat_agent logic to build the messages_payload
+    # (system prompt + memory + user message)
+    messages_payload = build_payload(message, user_id)
+
+    def generate():
+        try:
+            stream = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages_payload,
+                temperature=0.7,
+                stream=True,
+            )
+            full = ""
+            for chunk in stream:
+                delta = chunk.choices[0].delta.get("content")
+                if delta:
+                    full += delta
+                    yield f"data: {delta}\n\n"
+            # once complete, save the full assistant reply into memory
+            save_reply_to_memory(user_id, message, full)
+            yield "event: done\ndata: \n\n"
+        except OpenAIError as oe:
+            yield f"event: error\ndata: [OpenAIError] {str(oe)}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: [Error] {str(e)}\n\n"
+
+    # CORS is already enabled for all routes via CORS(app)
+    return Response(
+        stream_with_context(generate()), 
+        mimetype="text/event-stream"
+    )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
