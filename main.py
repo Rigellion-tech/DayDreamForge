@@ -66,9 +66,13 @@ def chat_stream():
                 model="gpt-4o", messages=payload, temperature=0.7, stream=True
             )
             for chunk in stream:
-                delta = chunk.choices[0].delta.get("content") or ""
+                # Extract content from ChoiceDelta object
+                delta = getattr(chunk.choices[0].delta, "content", "") or ""
                 full_reply += delta
-                yield f"data: {delta}\n\n"
+                yield f"data: {delta}
+
+"
+        # yield f"data: {delta}\n\n"
         except OpenAIError as oe:
             yield f"event: error\ndata: [OpenAIError] {str(oe)}\n\n"
             return
