@@ -69,10 +69,7 @@ def chat_stream():
                 # Extract content from ChoiceDelta object
                 delta = getattr(chunk.choices[0].delta, "content", "") or ""
                 full_reply += delta
-                yield f"data: {delta}
-
-"
-        # yield f"data: {delta}\n\n"
+                yield f"data: {delta}\n\n"
         except OpenAIError as oe:
             yield f"event: error\ndata: [OpenAIError] {str(oe)}\n\n"
             return
@@ -86,7 +83,10 @@ def chat_stream():
         save_memory(user_id, history)
         yield "event: done\ndata: \n\n"
 
-    return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="text/event-stream"
+    )
 
 @app.route("/image", methods=["POST"])
 def generate_image():
@@ -99,10 +99,7 @@ def generate_image():
         return jsonify({"error": "Missing prompt"}), 400
 
     try:
-        if identity_image_url:
-            url = generate_image_from_prompt(prompt, identity_image_url)
-        else:
-            url = generate_image_from_prompt(prompt)
+        url = generate_image_from_prompt(prompt, identity_image_url)
         if url:
             return jsonify({"imageUrl": url})
         else:
