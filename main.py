@@ -37,7 +37,7 @@ def chat():
     memory = load_memory(user_id)
     memory.append(f"🧑: {message}")
 
-    response = get_chat_response(message)
+    response = get_chat_response(message, user_id)
     memory.append(f"🤖: {response}")
 
     save_memory(user_id, memory)
