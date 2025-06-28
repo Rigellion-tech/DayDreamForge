@@ -1,9 +1,10 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from chat_agent import get_chat_response
-from image_generator import generate_image_from_prompt
 import os
 import json
+from flask import Flask, request, jsonify, Response, stream_with_context
+from flask_cors import CORS
+from openai import OpenAIError
+from chat_agent import load_memory, save_memory, get_chat_response, client
+from image_generator import generate_image_from_prompt
 
 app = Flask(__name__)
 CORS(app)
@@ -13,17 +14,6 @@ os.makedirs(MEMORY_DIR, exist_ok=True)
 
 def memory_file_path(user_id):
     return os.path.join(MEMORY_DIR, f"{user_id}.json")
-
-def load_memory(user_id):
-    try:
-        with open(memory_file_path(user_id), "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
-
-def save_memory(user_id, messages):
-    with open(memory_file_path(user_id), "w") as f:
-        json.dump(messages, f)
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -41,10 +31,59 @@ def chat():
     memory.append(f"🤖: {response}")
 
     save_memory(user_id, memory)
-
     return jsonify({"response": response})
 
-# Updated route and response key for image generation
+@app.route("/chat/stream")
+def chat_stream():
+    # SSE streaming endpoint (GET only)
+    user_id = request.args.get("user_id")
+    message = request.args.get("message")
+    if not user_id or not message:
+        return ("Missing user_id or message", 400)
+
+    # Build messages payload: system prompt, memory, user message
+    history = load_memory(user_id)[-20:]
+    payload = [
+        {
+            "role": "system",
+            "content": (
+                "You are DayDream AI, a friendly, expert transformation coach. "
+                "Provide clear, step-by-step guidance and ask clarifying questions when needed."
+            ),
+        }
+    ]
+    for entry in history:
+        if entry.startswith("🧑:"):
+            payload.append({"role": "user", "content": entry[3:].strip()})
+        elif entry.startswith("🤖:"):
+            payload.append({"role": "assistant", "content": entry[3:].strip()})
+    payload.append({"role": "user", "content": message})
+
+    def event_stream():
+        full_reply = ""
+        try:
+            stream = client.chat.completions.create(
+                model="gpt-4o", messages=payload, temperature=0.7, stream=True
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.get("content") or ""
+                full_reply += delta
+                yield f"data: {delta}\n\n"
+        except OpenAIError as oe:
+            yield f"event: error\ndata: [OpenAIError] {str(oe)}\n\n"
+            return
+        except Exception as e:
+            yield f"event: error\ndata: [Error] {str(e)}\n\n"
+            return
+
+        # Save the completed conversation
+        history.append(f"🧑: {message}")
+        history.append(f"🤖: {full_reply}")
+        save_memory(user_id, history)
+        yield "event: done\ndata: \n\n"
+
+    return Response(stream_with_context(event_stream()), mimetype="text/event-stream")
+
 @app.route("/image", methods=["POST"])
 def generate_image():
     data = request.get_json()
@@ -57,12 +96,11 @@ def generate_image():
 
     try:
         if identity_image_url:
-            image_url = generate_image_from_prompt(prompt, identity_image_url)
+            url = generate_image_from_prompt(prompt, identity_image_url)
         else:
-            image_url = generate_image_from_prompt(prompt)
-
-        if image_url:
-            return jsonify({"imageUrl": image_url})  # match frontend expectation
+            url = generate_image_from_prompt(prompt)
+        if url:
+            return jsonify({"imageUrl": url})
         else:
             return jsonify({"error": "Image generation failed"}), 500
     except Exception as e:
@@ -70,58 +108,18 @@ def generate_image():
 
 @app.route("/memory", methods=["GET", "POST"])
 def memory():
-    data = request.get_json() if request.method == "POST" else request.args
-    user_id = data.get("user_id")
-
-    if not user_id:
-        return jsonify({"error": "Missing user_id"}), 400
-
     if request.method == "POST":
+        data = request.get_json()
+        user_id = data.get("user_id")
         messages = data.get("messages", [])
         save_memory(user_id, messages)
         return jsonify({"status": "saved", "count": len(messages)})
 
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
     messages = load_memory(user_id)
     return jsonify({"messages": messages})
-@app.route("/chat/stream")
-def chat_stream():
-    # read user_id and message from query params since EventSource uses GET
-    user_id = request.args.get("user_id")
-    message = request.args.get("message")
-    if not user_id or not message:
-        return ("Missing user_id or message", 400)
-
-    # Re-use your chat_agent logic to build the messages_payload
-    # (system prompt + memory + user message)
-    messages_payload = build_payload(message, user_id)
-
-    def generate():
-        try:
-            stream = client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages_payload,
-                temperature=0.7,
-                stream=True,
-            )
-            full = ""
-            for chunk in stream:
-                delta = chunk.choices[0].delta.get("content")
-                if delta:
-                    full += delta
-                    yield f"data: {delta}\n\n"
-            # once complete, save the full assistant reply into memory
-            save_reply_to_memory(user_id, message, full)
-            yield "event: done\ndata: \n\n"
-        except OpenAIError as oe:
-            yield f"event: error\ndata: [OpenAIError] {str(oe)}\n\n"
-        except Exception as e:
-            yield f"event: error\ndata: [Error] {str(e)}\n\n"
-
-    # CORS is already enabled for all routes via CORS(app)
-    return Response(
-        stream_with_context(generate()), 
-        mimetype="text/event-stream"
-    )
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
