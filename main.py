@@ -42,7 +42,7 @@ def chat():
     elif message:
         memory.append({"role": "user", "content": message})
 
-    # Get response (vision-enabled)
+    # Get response
     reply = get_chat_response(message, user_id, image_url)
 
     memory.append({"role": "assistant", "content": reply})
@@ -98,8 +98,9 @@ def chat_stream():
     def event_stream():
         full_reply = ""
         try:
+            # Use gpt-4o for vision-enabled streaming
             stream = get_chat_response.__globals__["client"].chat.completions.create(
-                model="gpt-4-vision-preview",
+                model="gpt-4o",
                 messages=payload,
                 temperature=0.7,
                 stream=True
@@ -111,12 +112,15 @@ def chat_stream():
 
         except OpenAIError as oe:
             logger.exception("OpenAIError in stream")
-            yield f"event: error\ndata: [OpenAIError] {oe}\n\n"
+            # Emit error as data and signal done
+            yield f"data: [OpenAIError] {oe}\n\n"
+            yield "event: done\ndata: \n\n"
             return
 
         except Exception as e:
             logger.exception("Error in stream")
-            yield f"event: error\ndata: [Error] {e}\n\n"
+            yield f"data: [Error] {e}\n\n"
+            yield "event: done\ndata: \n\n"
             return
 
         # Save history with image or text entries
