@@ -8,24 +8,36 @@ MEMORY_DIR = "chat_memories"
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-
 def memory_file_path(user_id):
     return os.path.join(MEMORY_DIR, f"{user_id}.json")
 
-
 def load_memory(user_id):
-    try:
-        with open(memory_file_path(user_id), "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
+    # Make sure the directory exists
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+
+    path = memory_file_path(user_id)
+    # If there's no file yet, start fresh
+    if not os.path.exists(path):
         return []
 
+    try:
+        with open(path, "r") as f:
+            data = f.read().strip()
+            if not data:
+                # empty file
+                return []
+            return json.loads(data)
+    except (json.JSONDecodeError, IOError):
+        # Corrupt or unreadable file → reset it
+        with open(path, "w") as f:
+            json.dump([], f)
+        return []
 
 def save_memory(user_id, messages):
+    # Directory already ensured in load_memory, but safe to do again:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(memory_file_path(user_id), "w") as f:
         json.dump(messages, f)
-
 
 def get_chat_response(message: str, user_id: str) -> str:
     """
