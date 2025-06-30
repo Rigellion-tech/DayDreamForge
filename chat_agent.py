@@ -93,7 +93,7 @@ def get_chat_response(
     try:
         # Use a vision-enabled GPT model (e.g., gpt-4-vision-preview or gpt-4o)
         response = client.chat.completions.create(
-            model="gpt-4-vision-preview",
+            model="gpt-4o",
             messages=messages_payload,
             temperature=0.7,
             max_tokens=500,
