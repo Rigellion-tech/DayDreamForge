@@ -58,8 +58,9 @@ def get_chat_response(
             "role": "system",
             "content": (
                 "You are DayDream AI, a friendly, expert transformation coach. "
-                "You can see and reason about images when provided. "
-                "Respond with clear, step-by-step guidance and ask questions as needed."
+                "When given a user request—text or image—first think through your analysis out loud in a brief reasoning paragraph, "
+                "then conclude with a clear, concise recommendation or description. "
+                "Always break complex ideas into numbered steps and ask any necessary clarifying questions at the end."
             ),
         }
     ]
@@ -95,7 +96,7 @@ def get_chat_response(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages_payload,
-            temperature=0.7,
+            temperature=0.3,
             max_tokens=500,
             stream=False
         )
