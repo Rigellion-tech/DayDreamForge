@@ -51,20 +51,31 @@ def chat():
     return jsonify({"response": reply})
 
 # ─── Streaming Chat Endpoint (SSE) ─────────────────────────────────────────────
-@app.route("/chat/stream")
+@app.route("/chat/stream", methods=["GET", "POST"])
 def chat_stream():
-    user_id   = request.args.get("user_id")
-    message   = request.args.get("message", "")
-    image_url = request.args.get("image_url")
-    if not user_id or (not message and not image_url):
-        return ("Missing user_id or message/image_url", 400)
+    # Support both GET and POST payloads
+    if request.method == "POST":
+        data = request.get_json() or {}
+        user_id = data.get("user_id")
+        image_url = data.get("image_url")
+        messages = data.get("messages", [])
+    else:
+        user_id = request.args.get("user_id")
+        image_url = request.args.get("image_url")
+        message = request.args.get("message", "")
+        messages = []
+        if message:
+            messages.append({"role": "user", "content": message})
 
-    logger.info(f"[chat/stream] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
+    logger.info(f"[chat/stream] user_id={user_id!r}, image_url={image_url!r}")
 
     # Load history (last 20)
     history = load_memory(user_id)[-20:]
 
-    # Build system + memory payload
+    # Start payload with system message
     payload = [
         {
             "role": "system",
@@ -75,25 +86,23 @@ def chat_stream():
             ),
         }
     ]
+
     for entry in history:
         if isinstance(entry, dict) and "role" in entry and "content" in entry:
             payload.append(entry)
 
+    # Append past conversation from POST payload (if any)
+    payload += messages
+
     # Embed image chunk if present
     if image_url:
-        payload.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text",      "text": "Here is an image for you to analyze:"},
-                    {"type": "image_url", "image_url": {"url": image_url}}
-                ]
-            }
-        )
-
-    # Append user text if present
-    if message:
-        payload.append({"role": "user", "content": message})
+        payload.append({
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Here is an image for you to analyze:"},
+                {"type": "image_url", "image_url": {"url": image_url}}
+            ]
+        })
 
     def event_stream():
         full_reply = ""
@@ -112,7 +121,6 @@ def chat_stream():
 
         except OpenAIError as oe:
             logger.exception("OpenAIError in stream")
-            # Emit error as data and signal done
             yield f"data: [OpenAIError] {oe}\n\n"
             yield "event: done\ndata: \n\n"
             return
@@ -123,12 +131,13 @@ def chat_stream():
             yield "event: done\ndata: \n\n"
             return
 
-        # Save history with image or text entries
-        if image_url and not message:
-            history.append({"role":"user","content":f"[sent image: {image_url}]"})
-        elif message:
-            history.append({"role":"user","content":message})
-        history.append({"role":"assistant","content":full_reply})
+        # Save history with new entries
+        if image_url and not messages:
+            history.append({"role": "user", "content": f"[sent image: {image_url}]"})
+        elif messages:
+            history.extend(messages)
+
+        history.append({"role": "assistant", "content": full_reply})
         save_memory(user_id, history)
 
         yield "event: done\ndata: \n\n"
