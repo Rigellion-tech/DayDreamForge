@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from typing import Optional
 from openai import OpenAI, OpenAIError
 
@@ -16,7 +17,6 @@ def memory_file_path(user_id: str) -> str:
 
 
 def load_memory(user_id: str) -> list:
-    # Ensure memory directory exists
     os.makedirs(MEMORY_DIR, exist_ok=True)
     path = memory_file_path(user_id)
     if not os.path.exists(path):
@@ -38,6 +38,18 @@ def save_memory(user_id: str, messages: list) -> None:
     os.makedirs(MEMORY_DIR, exist_ok=True)
     with open(memory_file_path(user_id), "w") as f:
         json.dump(messages, f)
+
+
+def force_paragraphs(text: str) -> str:
+    """
+    Add paragraph breaks after periods, exclamation points, and question marks.
+    """
+    # Only run if text isn't empty
+    if not text:
+        return text
+    # Replace punctuation followed by spaces with punctuation + double newline
+    text = re.sub(r"([.?!])(\s+)", r"\1\n\n", text)
+    return text.strip()
 
 
 def get_chat_response(
@@ -92,7 +104,7 @@ def get_chat_response(
         messages_payload.append({"role": "user", "content": message})
 
     try:
-        # Use a vision-enabled GPT model (e.g., gpt-4-vision-preview or gpt-4o)
+        # Use a vision-enabled GPT model (e.g. gpt-4o)
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages_payload,
@@ -100,7 +112,10 @@ def get_chat_response(
             max_tokens=500,
             stream=False
         )
-        reply = response.choices[0].message.content
+        raw_reply = response.choices[0].message.content
+
+        # Format the text to preserve paragraph breaks
+        reply = force_paragraphs(raw_reply)
 
         # Update memory and save as dict entries
         new_memory = history + [
