@@ -12,22 +12,32 @@ logger = logging.getLogger(__name__)
 
 # ─── Flask App Setup ───────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app)
+
+# Allow CORS on all routes and support credentials
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    supports_credentials=True,
+    allow_headers=["Content-Type"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 # ─── Memory Directory (absolute path) ─────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 os.makedirs(MEMORY_DIR, exist_ok=True)
 
+
 def memory_file_path(user_id: str) -> str:
     return os.path.join(MEMORY_DIR, f"{user_id}.json")
 
-# ─── Simple Chat Endpoint (non-streaming) ───────────────────────────────────────
+
+# ─── Simple Chat Endpoint (non-streaming) ─────────────────────────────────────
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json() or {}
-    user_id   = data.get("user_id")
-    message   = data.get("message", "")
+    user_id = data.get("user_id")
+    message = data.get("message", "")
     image_url = data.get("image_url")
 
     if not user_id or (not message and not image_url):
@@ -50,10 +60,14 @@ def chat():
 
     return jsonify({"response": reply})
 
+
 # ─── Streaming Chat Endpoint (SSE) ─────────────────────────────────────────────
-@app.route("/chat/stream", methods=["GET", "POST"])
+@app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
 def chat_stream():
-    # Support both GET and POST payloads
+    if request.method == "OPTIONS":
+        # Handle CORS preflight
+        return '', 200
+
     if request.method == "POST":
         data = request.get_json() or {}
         user_id = data.get("user_id")
@@ -91,7 +105,7 @@ def chat_stream():
         if isinstance(entry, dict) and "role" in entry and "content" in entry:
             payload.append(entry)
 
-    # Append past conversation from POST payload (if any)
+    # Append conversation from POST payload (if any)
     payload += messages
 
     # Embed image chunk if present
@@ -147,12 +161,13 @@ def chat_stream():
         mimetype="text/event-stream"
     )
 
-# ─── Image Generation Endpoint ─────────────────────────────────────────────────
+
+# ─── Image Generation Endpoint ────────────────────────────────────────────────
 @app.route("/image", methods=["POST"])
 def generate_image():
-    data     = request.get_json() or {}
-    prompt   = data.get("prompt")
-    user_id  = data.get("user_id")
+    data = request.get_json() or {}
+    prompt = data.get("prompt")
+    user_id = data.get("user_id")
     identity_image_url = data.get("identity_image_url")
 
     if not prompt:
@@ -168,12 +183,13 @@ def generate_image():
         logger.exception("Error in /image")
         return jsonify({"error": str(e)}), 500
 
+
 # ─── Memory Inspection & Save Endpoint ─────────────────────────────────────────
 @app.route("/memory", methods=["GET", "POST"])
 def memory():
     if request.method == "POST":
-        data     = request.get_json() or {}
-        user_id  = data.get("user_id")
+        data = request.get_json() or {}
+        user_id = data.get("user_id")
         messages = data.get("messages", [])
         save_memory(user_id, messages)
         return jsonify({"status": "saved", "count": len(messages)})
@@ -183,6 +199,7 @@ def memory():
         return jsonify({"error": "Missing user_id"}), 400
 
     return jsonify({"messages": load_memory(user_id)})
+
 
 # ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
