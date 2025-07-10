@@ -1,19 +1,25 @@
 import os
+import json
+import re
+import random
+import string
+import datetime
 import logging
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from openai import OpenAIError
+from auth_email import send_login_code
 from chat_agent import load_memory, save_memory, get_chat_response
 from image_generator import generate_image_from_prompt
 
-# ─── Logging Setup ─────────────────────────────────────────────────────────────
+# ─── Logging Setup ────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── Flask App Setup ───────────────────────────────────────────────────────────
+# ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
 
-# Allow CORS on all routes and support credentials
+# Enable full CORS
 CORS(
     app,
     resources={r"/*": {"origins": "*"}},
@@ -22,17 +28,80 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
 )
 
-# ─── Memory Directory (absolute path) ─────────────────────────────────────────
+# ─── Directories ──────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
+AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
 os.makedirs(MEMORY_DIR, exist_ok=True)
+os.makedirs(AUTH_CODES_DIR, exist_ok=True)
 
+# ─── Auth Code Helpers ────────────────────────────────────────────
 
-def memory_file_path(user_id: str) -> str:
-    return os.path.join(MEMORY_DIR, f"{user_id}.json")
+def generate_code(length=6):
+    return ''.join(random.choices(string.digits, k=length))
 
+def save_code(email, code):
+    path = os.path.join(AUTH_CODES_DIR, f"{email}.json")
+    data = {
+        "code": code,
+        "expires_at": (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).isoformat()
+    }
+    with open(path, "w") as f:
+        json.dump(data, f)
 
-# ─── Simple Chat Endpoint (non-streaming) ─────────────────────────────────────
+def verify_code(email, code):
+    path = os.path.join(AUTH_CODES_DIR, f"{email}.json")
+    if not os.path.exists(path):
+        return False, "No code sent to this email."
+
+    with open(path, "r") as f:
+        stored = json.load(f)
+
+    expires = datetime.datetime.fromisoformat(stored["expires_at"])
+    if datetime.datetime.utcnow() > expires:
+        return False, "Code expired."
+
+    if stored["code"] != code:
+        return False, "Invalid code."
+
+    # Optionally delete file after use:
+    os.remove(path)
+    return True, None
+
+# ─── Auth Endpoints ───────────────────────────────────────────────
+
+@app.route("/auth/request_code", methods=["POST"])
+def request_code():
+    data = request.get_json() or {}
+    email = data.get("email")
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    code = generate_code()
+    save_code(email, code)
+    send_login_code(email, code)
+
+    return jsonify({"success": True})
+
+@app.route("/auth/verify_code", methods=["POST"])
+def verify_auth_code():
+    data = request.get_json() or {}
+    email = data.get("email")
+    code = data.get("code")
+
+    if not email or not code:
+        return jsonify({"error": "Missing email or code"}), 400
+
+    ok, error_msg = verify_code(email, code)
+    if not ok:
+        return jsonify({"error": error_msg}), 400
+
+    # Success — use email as user_id
+    return jsonify({"success": True, "user_id": email})
+
+# ─── Chat Endpoints ───────────────────────────────────────────────
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json() or {}
@@ -45,14 +114,12 @@ def chat():
 
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
 
-    # Build memory entry for image or text
     memory = load_memory(user_id)
     if image_url and not message:
         memory.append({"role": "user", "content": f"[sent image: {image_url}]"})
     elif message:
         memory.append({"role": "user", "content": message})
 
-    # Get response
     reply = get_chat_response(message, user_id, image_url)
 
     memory.append({"role": "assistant", "content": reply})
@@ -60,13 +127,12 @@ def chat():
 
     return jsonify({"response": reply})
 
+# ─── Streaming Chat Endpoint ─────────────────────────────────────
 
-# ─── Streaming Chat Endpoint (SSE) ─────────────────────────────────────────────
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
 def chat_stream():
     if request.method == "OPTIONS":
-        # Handle CORS preflight
-        return '', 200
+        return "", 200
 
     if request.method == "POST":
         data = request.get_json() or {}
@@ -86,10 +152,8 @@ def chat_stream():
 
     logger.info(f"[chat/stream] user_id={user_id!r}, image_url={image_url!r}")
 
-    # Load history (last 20)
     history = load_memory(user_id)[-20:]
 
-    # Start payload with system message
     payload = [
         {
             "role": "system",
@@ -97,7 +161,7 @@ def chat_stream():
                 "You are DayDream AI, a friendly, expert transformation coach. "
                 "You can see and reason about images when provided. "
                 "Respond with clear, step-by-step guidance and ask questions as needed."
-            ),
+            )
         }
     ]
 
@@ -105,10 +169,8 @@ def chat_stream():
         if isinstance(entry, dict) and "role" in entry and "content" in entry:
             payload.append(entry)
 
-    # Append conversation from POST payload (if any)
     payload += messages
 
-    # Embed image chunk if present
     if image_url:
         payload.append({
             "role": "user",
@@ -121,7 +183,6 @@ def chat_stream():
     def event_stream():
         full_reply = ""
         try:
-            # Use gpt-4o for vision-enabled streaming
             stream = get_chat_response.__globals__["client"].chat.completions.create(
                 model="gpt-4o",
                 messages=payload,
@@ -145,7 +206,6 @@ def chat_stream():
             yield "event: done\ndata: \n\n"
             return
 
-        # Save history with new entries
         if image_url and not messages:
             history.append({"role": "user", "content": f"[sent image: {image_url}]"})
         elif messages:
@@ -161,8 +221,8 @@ def chat_stream():
         mimetype="text/event-stream"
     )
 
+# ─── Image Generation ───────────────────────────────────────────
 
-# ─── Image Generation Endpoint ────────────────────────────────────────────────
 @app.route("/image", methods=["POST"])
 def generate_image():
     data = request.get_json() or {}
@@ -178,13 +238,12 @@ def generate_image():
         if url:
             return jsonify({"imageUrl": url})
         return jsonify({"error": "Image generation failed"}), 500
-
     except Exception as e:
         logger.exception("Error in /image")
         return jsonify({"error": str(e)}), 500
 
+# ─── Memory Inspection & Save ──────────────────────────────────
 
-# ─── Memory Inspection & Save Endpoint ─────────────────────────────────────────
 @app.route("/memory", methods=["GET", "POST"])
 def memory():
     if request.method == "POST":
@@ -200,7 +259,7 @@ def memory():
 
     return jsonify({"messages": load_memory(user_id)})
 
+# ─── Entrypoint ────────────────────────────────────────────────
 
-# ─── Entrypoint ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
