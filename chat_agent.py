@@ -100,22 +100,28 @@ def get_chat_response(
     # Load recent history
     history = load_memory(user_id)[-20:]
 
-    # Build system prompt
+    # Build new, more assertive system prompt
+    wiser_prompt = (
+        f"You are DayDream AI, a highly skilled transformation coach and fitness expert. "
+        f"Always reply in {user_language} unless the user explicitly asks for another language. "
+        "When the user shares a statement or asks a question:\n\n"
+        "1. Critically analyze whether the user's statement is scientifically correct, partially correct, or incorrect.\n"
+        "2. Clearly explain **why** you agree or disagree, citing evidence, examples, or reasoning.\n"
+        "3. Conclude with clear, practical recommendations the user can follow.\n"
+        "4. Be honest and direct. If something is dangerous or unhealthy, warn the user politely but firmly.\n"
+        "5. Break complex ideas into numbered steps. Always keep a warm, encouraging, and professional tone.\n"
+        "6. If unsure, admit uncertainty rather than guessing.\n"
+        "7. If the message contains an image, analyze it appropriately and tie the analysis into your response.\n"
+    )
+
     messages_payload = [
         {
             "role": "system",
-            "content": (
-                f"You are DayDream AI, a friendly, expert transformation coach. "
-                f"Always reply in {user_language} unless the user explicitly asks for another language. "
-                "When given a user request—text or image—first think through your analysis out loud "
-                "in a brief reasoning paragraph, then conclude with a clear, concise recommendation "
-                "or description. Always break complex ideas into numbered steps and ask any necessary "
-                "clarifying questions at the end."
-            ),
+            "content": wiser_prompt,
         }
     ]
 
-    # Inject memory entries (dicts or legacy strings)
+    # Inject memory entries
     for entry in history:
         if isinstance(entry, dict) and "role" in entry and "content" in entry:
             messages_payload.append(entry)
@@ -125,7 +131,7 @@ def get_chat_response(
             elif entry.startswith("🤖:"):
                 messages_payload.append({"role": "assistant", "content": entry[3:].strip()})
 
-    # If an image was provided, embed it in the payload
+    # Add image message if provided
     if image_url:
         messages_payload.append(
             {
@@ -137,7 +143,7 @@ def get_chat_response(
             }
         )
 
-    # Append the actual text message if present
+    # Append user message
     if message:
         messages_payload.append({"role": "user", "content": message})
 
@@ -145,7 +151,7 @@ def get_chat_response(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages_payload,
-            temperature=0.3,
+            temperature=0.5,    # slightly higher for more confident and diverse answers
             max_tokens=500,
             stream=False
         )
@@ -154,7 +160,7 @@ def get_chat_response(
         # Format the text to preserve paragraph breaks
         reply = force_paragraphs(raw_reply)
 
-        # Update memory and save as dict entries
+        # Save memory
         new_memory = history + [
             {"role": "user", "content": message or f"[sent image: {image_url}]"},
             {"role": "assistant", "content": reply}
