@@ -8,6 +8,9 @@ from openai import OpenAI, OpenAIError
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 
+# Trusted data JSON file path
+TRUSTED_DATA_PATH = os.path.join(BASE_DIR, "trusted_data.json")
+
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -85,15 +88,34 @@ def detect_language(message: str) -> str:
 
 def get_trusted_context(query: str) -> str:
     """
-    Placeholder for future trusted context retrieval.
-    Currently returns empty string.
+    Searches a local JSON file for trusted medical/fitness context
+    matching the query.
+    Returns a string with trusted info if found, otherwise empty string.
     """
-    # For now, no retrieval. Later you could:
-    # - call PubMed API
-    # - search local JSON files
-    # - call Google Custom Search
-    # and return paragraphs of trusted content.
-    return ""
+
+    if not query:
+        return ""
+
+    try:
+        if not os.path.exists(TRUSTED_DATA_PATH):
+            # File does not exist, skip
+            return ""
+
+        with open(TRUSTED_DATA_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for item in data:
+            topic = item.get("topic", "").lower()
+            if topic and topic in query.lower():
+                text = item.get("text", "")
+                source = item.get("source", "")
+                return f"{text} (Source: {source})"
+
+        return ""
+
+    except Exception as e:
+        print("Trusted context lookup error:", e)
+        return ""
 
 
 def get_chat_response(
@@ -113,10 +135,10 @@ def get_chat_response(
     # Load recent history
     history = load_memory(user_id)[-20:]
 
-    # Optionally pull in trusted context (currently empty)
+    # Pull trusted context
     trusted_context = get_trusted_context(message)
 
-    # Build new, trusted-source system prompt
+    # Build system prompt
     system_prompt = (
         f"You are DayDream AI, a highly skilled transformation coach and fitness expert. "
         f"Always reply in {user_language} unless the user explicitly asks for another language.\n\n"
@@ -131,7 +153,7 @@ def get_chat_response(
         "6. Break complex ideas into numbered steps, keeping a warm, encouraging, and professional tone.\n"
         "7. If the user message contains an image, analyze it and integrate your analysis into your response.\n"
         "8. If relevant context is provided below, use it and cite it. Otherwise, rely on your training.\n\n"
-        f"Trusted context (if any):\n{trusted_context}\n\n"
+        f"Trusted context (if any):\n{trusted_context if trusted_context else '[none found]'}\n\n"
     )
 
     messages_payload = [
@@ -177,7 +199,7 @@ def get_chat_response(
         )
         raw_reply = response.choices[0].message.content
 
-        # Format the text to preserve paragraph breaks
+        # Format text into paragraphs
         reply = force_paragraphs(raw_reply)
 
         # Save memory
