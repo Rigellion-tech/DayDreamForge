@@ -83,6 +83,19 @@ def detect_language(message: str) -> str:
         return "English"
 
 
+def get_trusted_context(query: str) -> str:
+    """
+    Placeholder for future trusted context retrieval.
+    Currently returns empty string.
+    """
+    # For now, no retrieval. Later you could:
+    # - call PubMed API
+    # - search local JSON files
+    # - call Google Custom Search
+    # and return paragraphs of trusted content.
+    return ""
+
+
 def get_chat_response(
     message: str,
     user_id: str,
@@ -100,24 +113,31 @@ def get_chat_response(
     # Load recent history
     history = load_memory(user_id)[-20:]
 
-    # Build new, more assertive system prompt
-    wiser_prompt = (
+    # Optionally pull in trusted context (currently empty)
+    trusted_context = get_trusted_context(message)
+
+    # Build new, trusted-source system prompt
+    system_prompt = (
         f"You are DayDream AI, a highly skilled transformation coach and fitness expert. "
-        f"Always reply in {user_language} unless the user explicitly asks for another language. "
-        "When the user shares a statement or asks a question:\n\n"
-        "1. Critically analyze whether the user's statement is scientifically correct, partially correct, or incorrect.\n"
+        f"Always reply in {user_language} unless the user explicitly asks for another language.\n\n"
+        "When the user shares a statement or asks a question:\n"
+        "1. Analyze whether the user's statement is scientifically correct, partially correct, or incorrect.\n"
         "2. Clearly explain **why** you agree or disagree, citing evidence, examples, or reasoning.\n"
-        "3. Conclude with clear, practical recommendations the user can follow.\n"
-        "4. Be honest and direct. If something is dangerous or unhealthy, warn the user politely but firmly.\n"
-        "5. Break complex ideas into numbered steps. Always keep a warm, encouraging, and professional tone.\n"
-        "6. If unsure, admit uncertainty rather than guessing.\n"
-        "7. If the message contains an image, analyze it appropriately and tie the analysis into your response.\n"
+        "3. If discussing health, fitness, nutrition, or medical topics, cite reputable sources such as "
+        "Mayo Clinic, NIH, WHO, PubMed, or similar.\n"
+        "4. If you don't know an answer or cannot find a trustworthy source, respond:\n"
+        "\"I’m not certain about that. Please consult a healthcare professional.\"\n"
+        "5. Never guess or invent facts.\n"
+        "6. Break complex ideas into numbered steps, keeping a warm, encouraging, and professional tone.\n"
+        "7. If the user message contains an image, analyze it and integrate your analysis into your response.\n"
+        "8. If relevant context is provided below, use it and cite it. Otherwise, rely on your training.\n\n"
+        f"Trusted context (if any):\n{trusted_context}\n\n"
     )
 
     messages_payload = [
         {
             "role": "system",
-            "content": wiser_prompt,
+            "content": system_prompt,
         }
     ]
 
@@ -151,8 +171,8 @@ def get_chat_response(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages_payload,
-            temperature=0.5,    # slightly higher for more confident and diverse answers
-            max_tokens=500,
+            temperature=0.0,     # lower temp for factual reliability
+            max_tokens=800,
             stream=False
         )
         raw_reply = response.choices[0].message.content
