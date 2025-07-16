@@ -24,6 +24,9 @@ CORS(
     app,
     origins=[
         "https://daydreamforge.vercel.app",
+        "https://www.daydreamforge.com",
+        "https://daydreamforge.com",
+        "http://localhost:3000",
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
