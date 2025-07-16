@@ -5,7 +5,7 @@ import random
 import string
 import datetime
 import logging
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, make_response
 from flask_cors import CORS
 from openai import OpenAIError
 from auth_email import send_login_code
@@ -64,7 +64,6 @@ def verify_code(email, code):
     if stored["code"] != code:
         return False, "Invalid code."
 
-    # Optionally delete file after use:
     os.remove(path)
     return True, None
 
@@ -98,7 +97,21 @@ def verify_auth_code():
         return jsonify({"error": error_msg}), 400
 
     # Success — use email as user_id
-    return jsonify({"success": True, "user_id": email})
+    user_id = email
+
+    # ✅ PATCH START — Set cookie in response
+    response = make_response(jsonify({"success": True, "user_id": user_id}))
+    response.set_cookie(
+        "user_id",
+        user_id,
+        max_age=60 * 60 * 24 * 365,  # one year
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="Lax"
+    )
+    return response
+    # ✅ PATCH END
 
 # ─── Chat Endpoints ───────────────────────────────────────────────
 
