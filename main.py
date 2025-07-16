@@ -19,13 +19,13 @@ logger = logging.getLogger(__name__)
 # ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
 
-# ✅ PATCHED CORS
+# ✅ PATCHED CORS CONFIG
 CORS(
     app,
     origins=[
-        "https://daydreamforge.vercel.app",
-        "https://www.daydreamforge.com",
         "https://daydreamforge.com",
+        "https://www.daydreamforge.com",
+        "https://daydreamforge.vercel.app",
         "http://localhost:3000",
     ],
     supports_credentials=True,
@@ -103,7 +103,6 @@ def verify_auth_code():
     if not ok:
         return jsonify({"error": error_msg}), 400
 
-    # Success — use email as user_id
     user_id = email
 
     response = make_response(jsonify({"success": True, "user_id": user_id}))
@@ -115,11 +114,11 @@ def verify_auth_code():
         secure=True,
         httponly=True,
         samesite="Lax",
-        domain=".daydreamforge.com"    # ✅ PATCHED HERE
+        domain=".daydreamforge.com"
     )
     return response
 
-# ✅ ✅ NEW LOGOUT ENDPOINT
+# ✅ NEW LOGOUT ENDPOINT
 @app.route("/auth/logout", methods=["POST"])
 def logout():
     response = make_response(jsonify({"success": True}))
