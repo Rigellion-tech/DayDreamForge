@@ -119,6 +119,22 @@ def verify_auth_code():
     )
     return response
 
+# ✅ ✅ NEW LOGOUT ENDPOINT
+@app.route("/auth/logout", methods=["POST"])
+def logout():
+    response = make_response(jsonify({"success": True}))
+    response.set_cookie(
+        "user_id",
+        "",
+        expires=0,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="Lax",
+        domain=".daydreamforge.com"
+    )
+    return response
+
 # ─── Chat Endpoints ───────────────────────────────────────────────
 
 @app.route("/chat", methods=["POST"])
