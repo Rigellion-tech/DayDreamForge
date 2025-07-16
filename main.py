@@ -114,7 +114,8 @@ def verify_auth_code():
         path="/",
         secure=True,
         httponly=True,
-        samesite="Lax"
+        samesite="Lax",
+        domain=".daydreamforge.com"    # ✅ PATCHED HERE
     )
     return response
 
