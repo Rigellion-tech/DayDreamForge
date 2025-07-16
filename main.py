@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 # ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
 
-# Enable full CORS
+# ✅ PATCHED CORS
 CORS(
     app,
-    resources={r"/*": {"origins": "*"}},
+    origins=[
+        "https://daydreamforge.vercel.app",
+    ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
     methods=["GET", "POST", "OPTIONS"],
@@ -74,6 +76,8 @@ def request_code():
     data = request.get_json() or {}
     email = data.get("email")
 
+    logger.info(f"Received auth request_code for email: {email}")
+
     if not email:
         return jsonify({"error": "Email is required"}), 400
 
@@ -99,7 +103,6 @@ def verify_auth_code():
     # Success — use email as user_id
     user_id = email
 
-    # ✅ PATCH START — Set cookie in response
     response = make_response(jsonify({"success": True, "user_id": user_id}))
     response.set_cookie(
         "user_id",
@@ -111,7 +114,6 @@ def verify_auth_code():
         samesite="Lax"
     )
     return response
-    # ✅ PATCH END
 
 # ─── Chat Endpoints ───────────────────────────────────────────────
 
@@ -275,4 +277,5 @@ def memory():
 # ─── Entrypoint ────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
