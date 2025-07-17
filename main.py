@@ -12,7 +12,7 @@ from auth_email import send_login_code
 from chat_agent import load_memory, save_memory, get_chat_response
 from image_generator import generate_image_from_prompt
 
-# ─── Logging Setup ────────────────────────────────────────────────
+# ─── Logging Setup ────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ app = Flask(__name__)
 # Determine if running in production
 is_prod = app.config.get("ENV") == "production"
 
-# ─── CORS Configuration ───────────────────────────────────────────
+# ─── CORS Configuration ─────────────────────────────────────────
 CORS(
     app,
     origins=[
@@ -29,14 +29,14 @@ CORS(
         "https://www.daydreamforge.com",
         "https://daydreamforge.vercel.app",
         "http://localhost:3000",
-        "https://daydreamforge.onrender.com",  # Add your actual Render URL
+        "https://daydreamforge.onrender.com",
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
     methods=["GET", "POST", "OPTIONS"],
 )
 
-# ─── Directories ──────────────────────────────────────────────────
+# ─── Directories ────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
@@ -44,7 +44,7 @@ AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
 os.makedirs(MEMORY_DIR, exist_ok=True)
 os.makedirs(AUTH_CODES_DIR, exist_ok=True)
 
-# ─── Auth Code Helpers ────────────────────────────────────────────
+# ─── Auth Code Helpers ────────────────────────────────
 
 def generate_code(length=6):
     return ''.join(random.choices(string.digits, k=length))
@@ -72,7 +72,12 @@ def verify_code(email, code):
     os.remove(path)
     return True, None
 
-# ─── Auth Endpoints ───────────────────────────────────────────────
+# ─── Auth Endpoints ────────────────────────────────
+
+@app.route("/auth/request_code", methods=["OPTIONS"])
+def request_code_options():
+    return '', 200
+
 @app.route("/auth/request_code", methods=["POST"])
 def request_code():
     data = request.get_json() or {}
@@ -97,10 +102,9 @@ def verify_auth_code():
         return jsonify({"error": error_msg}), 400
     user_id = email
     response = make_response(jsonify({"success": True, "user_id": user_id}))
-    # Environment-aware cookie settings
     cookie_args = {
         "path": "/",
-        "httponly": False,    # Allow JS to read for AuthLayout
+        "httponly": False,
         "samesite": "Lax",
     }
     if is_prod:
@@ -114,7 +118,6 @@ def verify_auth_code():
     response.set_cookie("user_id", user_id, **cookie_args)
     return response
 
-# ─── Logout Endpoint ──────────────────────────────────────────────
 @app.route("/auth/logout", methods=["POST"])
 def logout():
     response = make_response(jsonify({"success": True}))
