@@ -1,6 +1,5 @@
 import os
 import json
-import re
 import random
 import string
 import datetime
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
-# Determine environment for cookie settings
+# Determine if running in production
 is_prod = app.config.get("ENV") == "production"
 
 # ─── CORS Configuration ───────────────────────────────────────────
@@ -30,7 +29,7 @@ CORS(
         "https://www.daydreamforge.com",
         "https://daydreamforge.vercel.app",
         "http://localhost:3000",
-        "https://<YOUR_RENDER_APP>.onrender.com",  # Add your Render API URL here
+        "https://daydreamforge.onrender.com",  # Add your actual Render URL
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
@@ -74,7 +73,6 @@ def verify_code(email, code):
     return True, None
 
 # ─── Auth Endpoints ───────────────────────────────────────────────
-
 @app.route("/auth/request_code", methods=["POST"])
 def request_code():
     data = request.get_json() or {}
@@ -99,10 +97,10 @@ def verify_auth_code():
         return jsonify({"error": error_msg}), 400
     user_id = email
     response = make_response(jsonify({"success": True, "user_id": user_id}))
-    # Conditional cookie settings for dev vs production
+    # Environment-aware cookie settings
     cookie_args = {
         "path": "/",
-        "httponly": False,       # allow JS to read it
+        "httponly": False,    # Allow JS to read for AuthLayout
         "samesite": "Lax",
     }
     if is_prod:
@@ -117,7 +115,6 @@ def verify_auth_code():
     return response
 
 # ─── Logout Endpoint ──────────────────────────────────────────────
-
 @app.route("/auth/logout", methods=["POST"])
 def logout():
     response = make_response(jsonify({"success": True}))
@@ -136,34 +133,26 @@ def logout():
     return response
 
 # ─── Chat Endpoints ───────────────────────────────────────────────
-
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json() or {}
     user_id = data.get("user_id")
     message = data.get("message", "")
     image_url = data.get("image_url")
-
     if not user_id or (not message and not image_url):
         return jsonify({"error": "Missing user_id or message/image_url"}), 400
-
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
-
     memory = load_memory(user_id)
     if image_url and not message:
         memory.append({"role": "user", "content": f"[sent image: {image_url}]"})
     elif message:
         memory.append({"role": "user", "content": message})
-
     reply = get_chat_response(message, user_id, image_url)
-
     memory.append({"role": "assistant", "content": reply})
     save_memory(user_id, memory)
-
     return jsonify({"response": reply})
 
 # ─── Streaming Chat Endpoint ─────────────────────────────────────
-
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
 def chat_stream():
     if request.method == "OPTIONS":
@@ -190,14 +179,11 @@ def chat_stream():
     history = load_memory(user_id)[-20:]
 
     payload = [
-        {
-            "role": "system",
-            "content": (
-                "You are DayDream AI, a friendly, expert transformation coach. "
-                "You can see and reason about images when provided. "
-                "Respond with clear, step-by-step guidance and ask questions as needed."
-            )
-        }
+        {"role": "system", "content": (
+            "You are DayDream AI, a friendly, expert transformation coach. "
+            "You can see and reason about images when provided. "
+            "Respond with clear, step-by-step guidance and ask questions as needed."
+        )}
     ]
 
     for entry in history:
@@ -228,13 +214,11 @@ def chat_stream():
                 delta = getattr(chunk.choices[0].delta, "content", "") or ""
                 full_reply += delta
                 yield f"data: {delta}\n\n"
-
         except OpenAIError as oe:
             logger.exception("OpenAIError in stream")
             yield f"data: [OpenAIError] {oe}\n\n"
             yield "event: done\ndata: \n\n"
             return
-
         except Exception as e:
             logger.exception("Error in stream")
             yield f"data: [Error] {e}\n\n"
@@ -257,17 +241,14 @@ def chat_stream():
     )
 
 # ─── Image Generation ───────────────────────────────────────────
-
 @app.route("/image", methods=["POST"])
 def generate_image():
     data = request.get_json() or {}
     prompt = data.get("prompt")
     user_id = data.get("user_id")
     identity_image_url = data.get("identity_image_url")
-
     if not prompt:
         return jsonify({"error": "Missing prompt"}), 400
-
     try:
         url = generate_image_from_prompt(prompt, identity_image_url)
         if url:
