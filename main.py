@@ -5,6 +5,7 @@ import random
 import string
 import datetime
 import logging
+
 from flask import Flask, request, jsonify, Response, stream_with_context, make_response
 from flask_cors import CORS
 from openai import OpenAIError
@@ -18,8 +19,10 @@ logger = logging.getLogger(__name__)
 
 # ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
+# Determine environment for cookie settings
+is_prod = app.config.get("ENV") == "production"
 
-# ✅ PATCHED CORS CONFIG
+# ─── CORS Configuration ───────────────────────────────────────────
 CORS(
     app,
     origins=[
@@ -27,6 +30,7 @@ CORS(
         "https://www.daydreamforge.com",
         "https://daydreamforge.vercel.app",
         "http://localhost:3000",
+        "https://<YOUR_RENDER_APP>.onrender.com",  # Add your Render API URL here
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
@@ -37,6 +41,7 @@ CORS(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
+
 os.makedirs(MEMORY_DIR, exist_ok=True)
 os.makedirs(AUTH_CODES_DIR, exist_ok=True)
 
@@ -58,17 +63,13 @@ def verify_code(email, code):
     path = os.path.join(AUTH_CODES_DIR, f"{email}.json")
     if not os.path.exists(path):
         return False, "No code sent to this email."
-
     with open(path, "r") as f:
         stored = json.load(f)
-
     expires = datetime.datetime.fromisoformat(stored["expires_at"])
     if datetime.datetime.utcnow() > expires:
         return False, "Code expired."
-
     if stored["code"] != code:
         return False, "Invalid code."
-
     os.remove(path)
     return True, None
 
@@ -78,16 +79,12 @@ def verify_code(email, code):
 def request_code():
     data = request.get_json() or {}
     email = data.get("email")
-
     logger.info(f"Received auth request_code for email: {email}")
-
     if not email:
         return jsonify({"error": "Email is required"}), 400
-
     code = generate_code()
     save_code(email, code)
     send_login_code(email, code)
-
     return jsonify({"success": True})
 
 @app.route("/auth/verify_code", methods=["POST"])
@@ -95,43 +92,47 @@ def verify_auth_code():
     data = request.get_json() or {}
     email = data.get("email")
     code = data.get("code")
-
     if not email or not code:
         return jsonify({"error": "Missing email or code"}), 400
-
     ok, error_msg = verify_code(email, code)
     if not ok:
         return jsonify({"error": error_msg}), 400
-
     user_id = email
-
     response = make_response(jsonify({"success": True, "user_id": user_id}))
-    response.set_cookie(
-        "user_id",
-        user_id,
-        max_age=60 * 60 * 24 * 365,  # one year
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="Lax",
-        domain=".daydreamforge.com"
-    )
+    # Conditional cookie settings for dev vs production
+    cookie_args = {
+        "path": "/",
+        "httponly": False,       # allow JS to read it
+        "samesite": "Lax",
+    }
+    if is_prod:
+        cookie_args.update({
+            "max_age": 60 * 60 * 24 * 365,
+            "secure": True,
+            "domain": ".daydreamforge.com",
+        })
+    else:
+        cookie_args["max_age"] = 60 * 60 * 24 * 365
+    response.set_cookie("user_id", user_id, **cookie_args)
     return response
 
-# ✅ NEW LOGOUT ENDPOINT
+# ─── Logout Endpoint ──────────────────────────────────────────────
+
 @app.route("/auth/logout", methods=["POST"])
 def logout():
     response = make_response(jsonify({"success": True}))
-    response.set_cookie(
-        "user_id",
-        "",
-        expires=0,
-        path="/",
-        secure=True,
-        httponly=True,
-        samesite="Lax",
-        domain=".daydreamforge.com"
-    )
+    cookie_args = {
+        "expires": 0,
+        "path": "/",
+        "httponly": False,
+        "samesite": "Lax",
+    }
+    if is_prod:
+        cookie_args.update({
+            "secure": True,
+            "domain": ".daydreamforge.com",
+        })
+    response.set_cookie("user_id", "", **cookie_args)
     return response
 
 # ─── Chat Endpoints ───────────────────────────────────────────────
