@@ -6,22 +6,21 @@ import datetime
 import logging
 
 from flask import Flask, request, jsonify, Response, stream_with_context, make_response
-from flask_cors import CORS
+from flask_cors import CORS, cross_origin
 from openai import OpenAIError
 from auth_email import send_login_code
 from chat_agent import load_memory, save_memory, get_chat_response
 from image_generator import generate_image_from_prompt
 
-# ─── Logging Setup ────────────────────────────────────────────────────────
+# ─── Logging Setup ───
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── Flask App Setup ──────────────────────────────────────────────
+# ─── Flask App Setup ───
 app = Flask(__name__)
-# Determine if running in production
 is_prod = app.config.get("ENV") == "production"
 
-# ─── CORS Configuration ─────────────────────────────────────────
+# ─── CORS Configuration ───
 CORS(
     app,
     origins=[
@@ -36,7 +35,6 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
 )
 
-# ─── Directories ────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
@@ -44,8 +42,7 @@ AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
 os.makedirs(MEMORY_DIR, exist_ok=True)
 os.makedirs(AUTH_CODES_DIR, exist_ok=True)
 
-# ─── Auth Code Helpers ────────────────────────────────
-
+# ─── Auth Code Helpers ───
 def generate_code(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
@@ -72,17 +69,16 @@ def verify_code(email, code):
     os.remove(path)
     return True, None
 
-# ─── Auth Endpoints ────────────────────────────────
-
+# ─── Auth Endpoints ───
 @app.before_request
 def log_request():
     logger.info(f"{request.method} {request.path}")
 
 @app.route("/auth/request_code", methods=["POST", "OPTIONS"])
+@cross_origin(supports_credentials=True)
 def request_code():
     if request.method == "OPTIONS":
-        return '', 200  # Preflight CORS response
-
+        return '', 200
     data = request.get_json() or {}
     email = data.get("email")
     logger.info(f"Received auth request_code for email: {email}")
@@ -94,6 +90,7 @@ def request_code():
     return jsonify({"success": True})
 
 @app.route("/auth/verify_code", methods=["POST"])
+@cross_origin(supports_credentials=True)
 def verify_auth_code():
     data = request.get_json() or {}
     email = data.get("email")
@@ -122,6 +119,7 @@ def verify_auth_code():
     return response
 
 @app.route("/auth/logout", methods=["POST"])
+@cross_origin(supports_credentials=True)
 def logout():
     response = make_response(jsonify({"success": True}))
     cookie_args = {
@@ -138,8 +136,8 @@ def logout():
     response.set_cookie("user_id", "", **cookie_args)
     return response
 
-# ─── Chat Endpoints ───────────────────────────────────────────────
 @app.route("/chat", methods=["POST"])
+@cross_origin(supports_credentials=True)
 def chat():
     data = request.get_json() or {}
     user_id = data.get("user_id")
@@ -158,8 +156,8 @@ def chat():
     save_memory(user_id, memory)
     return jsonify({"response": reply})
 
-# ─── Streaming Chat Endpoint ─────────────────────────────────────
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
+@cross_origin(supports_credentials=True)
 def chat_stream():
     if request.method == "OPTIONS":
         return "", 200
@@ -246,8 +244,8 @@ def chat_stream():
         mimetype="text/event-stream"
     )
 
-# ─── Image Generation ───────────────────────────────────────────
 @app.route("/image", methods=["POST"])
+@cross_origin(supports_credentials=True)
 def generate_image():
     data = request.get_json() or {}
     prompt = data.get("prompt")
@@ -264,9 +262,8 @@ def generate_image():
         logger.exception("Error in /image")
         return jsonify({"error": str(e)}), 500
 
-# ─── Memory Inspection & Save ──────────────────────────────────
-
 @app.route("/memory", methods=["GET", "POST"])
+@cross_origin(supports_credentials=True)
 def memory():
     if request.method == "POST":
         data = request.get_json() or {}
@@ -280,8 +277,6 @@ def memory():
         return jsonify({"error": "Missing user_id"}), 400
 
     return jsonify({"messages": load_memory(user_id)})
-
-# ─── Entrypoint ────────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
