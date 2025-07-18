@@ -74,12 +74,15 @@ def verify_code(email, code):
 
 # ─── Auth Endpoints ────────────────────────────────
 
-@app.route("/auth/request_code", methods=["OPTIONS"])
-def request_code_options():
-    return '', 200
+@app.before_request
+def log_request():
+    logger.info(f"{request.method} {request.path}")
 
-@app.route("/auth/request_code", methods=["POST"])
+@app.route("/auth/request_code", methods=["POST", "OPTIONS"])
 def request_code():
+    if request.method == "OPTIONS":
+        return '', 200  # Preflight CORS response
+
     data = request.get_json() or {}
     email = data.get("email")
     logger.info(f"Received auth request_code for email: {email}")
