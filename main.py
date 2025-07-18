@@ -24,16 +24,14 @@ is_prod = app.config.get("ENV") == "production"
 CORS(
     app,
     origins=[
-        "https://daydreamforge.com",
-        "https://www.daydreamforge.com",
-        "https://daydreamforge.vercel.app",
-        "http://localhost:3000",
-        "https://daydreamforge.onrender.com",
+        "https://www.daydreamforge.com",   # production frontend
+        "http://localhost:3000",           # local dev
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
     methods=["GET", "POST", "OPTIONS"],
 )
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
