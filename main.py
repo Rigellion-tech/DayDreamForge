@@ -84,8 +84,15 @@ def request_code():
         return jsonify({"error": "Email is required"}), 400
     code = generate_code()
     save_code(email, code)
-    send_login_code(email, code)
+    try:
+        logger.info(f"Sending login code {code} to {email}")
+        send_login_code(email, code)
+    except Exception as e:
+        logger.exception("Failed to send login email")
+        return jsonify({"error": "Failed to send login email."}), 500
+    
     return jsonify({"success": True})
+
 
 @app.route("/auth/verify_code", methods=["POST"])
 @cross_origin(supports_credentials=True)
