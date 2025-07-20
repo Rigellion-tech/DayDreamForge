@@ -24,8 +24,10 @@ is_prod = app.config.get("ENV") == "production"
 CORS(
     app,
     origins=[
-        "https://www.daydreamforge.com",   # production frontend
-        "http://localhost:3000",           # local dev
+        "https://daydreamforge.com",
+        "https://www.daydreamforge.com",
+        "http://localhost:3000",  # for local dev
+        "https://daydreamforge.onrender.com"  # optional, if frontend ever runs here
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
