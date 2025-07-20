@@ -93,8 +93,8 @@ def request_code():
         logger.exception("Failed to send login email")
         return jsonify({"error": "Failed to send login email."}), 500
     
-    return jsonify({"success": True})
-
+    # PATCHED: Always return a valid Flask Response (not just True/False)
+    return jsonify({"success": True}), 200
 
 @app.route("/auth/verify_code", methods=["POST"])
 @cross_origin(supports_credentials=True)
