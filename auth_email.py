@@ -2,7 +2,6 @@ import smtplib
 from email.mime.text import MIMEText
 import os
 import logging
-from flask_cors import cross_origin
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -11,7 +10,6 @@ EMAIL_PASS = os.getenv("EMAIL_APP_PASSWORD")     # your 16-char Gmail app passwo
 
 logger = logging.getLogger(__name__)
 
-@cross_origin(supports_credentials=True)
 def send_login_code(to_email: str, code: str):
     if not EMAIL_USER or not EMAIL_PASS:
         logger.error("Missing EMAIL_USER or EMAIL_APP_PASSWORD env variable.")
@@ -31,7 +29,7 @@ def send_login_code(to_email: str, code: str):
             logger.info("[send_login_code] Logged in to SMTP server.")
             server.sendmail(msg["From"], [msg["To"]], msg.as_string())
             logger.info(f"[send_login_code] Email sent successfully to {to_email}.")
-        return True
+        # Do not return anything! Just complete if successful
     except smtplib.SMTPAuthenticationError:
         logger.error("SMTP authentication failed. Check your app password and email address.")
         raise
