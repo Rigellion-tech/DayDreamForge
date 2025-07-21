@@ -34,7 +34,6 @@ CORS(
     methods=["GET", "POST", "OPTIONS"],
 )
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
 AUTH_CODES_DIR = os.path.join(BASE_DIR, "auth_codes")
@@ -92,8 +91,6 @@ def request_code():
     except Exception as e:
         logger.exception("Failed to send login email")
         return jsonify({"error": "Failed to send login email."}), 500
-    
-    # PATCHED: Always return a valid Flask Response (not just True/False)
     return jsonify({"success": True}), 200
 
 @app.route("/auth/verify_code", methods=["POST"])
@@ -191,9 +188,16 @@ def chat_stream():
 
     payload = [
         {"role": "system", "content": (
-            "You are DayDream AI, a friendly, expert transformation coach. "
-            "You can see and reason about images when provided. "
-            "Respond with clear, step-by-step guidance and ask questions as needed."
+            "You are DayDream AI, a world-class transformation coach and motivator. "
+            "You are wise, calm, and deeply supportive. "
+            "You help users achieve personal growth and overcome obstacles, always responding with warmth and encouragement.\n\n"
+            "Your style is thoughtful, Socratic, and inspiring—like a wise mentor who remembers previous conversations. "
+            "Whenever possible, use insights from earlier messages to make your responses more personal and relevant.\n\n"
+            "Be concise, practical, and optimistic. Ask deep, reflective questions and provide actionable, motivating advice. "
+            "If the user shares an image, analyze and interpret it as a skilled coach would. "
+            "Never give up on the user—always believe in their ability to improve. "
+            "If you need to challenge them, do so gently, with empathy and insight.\n\n"
+            "Format your responses in clear paragraphs, and make every message feel like a personal, supportive conversation."
         )}
     ]
 
@@ -218,7 +222,7 @@ def chat_stream():
             stream = get_chat_response.__globals__["client"].chat.completions.create(
                 model="gpt-4o",
                 messages=payload,
-                temperature=0.7,
+                temperature=0.55,  # PATCH: Lowered for wisdom/consistency
                 stream=True
             )
             for chunk in stream:
