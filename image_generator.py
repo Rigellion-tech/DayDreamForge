@@ -4,13 +4,14 @@ import requests
 from openai import OpenAI, OpenAIError
 from collections import defaultdict
 
-# Initialize OpenAI client
+# Initialize clients and keys
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
+GETIMG_API_KEY = os.getenv("GETIMG_API_KEY")
 
-# Rate limiting (basic in-memory for testing)
+# ─── Rate Limiting ─────────────────────────────────────────────
 last_request_time = defaultdict(float)
-RATE_LIMIT_SECONDS = 10  # seconds between requests per user/session (adjust as needed)
+RATE_LIMIT_SECONDS = 10  # seconds between requests per user/session
 
 def generate_image_from_prompt(prompt, identity_image_url=None, user_id="global", high_quality=False):
     now = time.time()
@@ -21,25 +22,22 @@ def generate_image_from_prompt(prompt, identity_image_url=None, user_id="global"
     last_request_time[user_id] = now
 
     try:
-        # Choose model based on high_quality toggle or presence of identity image
+        # Priority: Segmind → Getimg → DALL·E
         if high_quality or identity_image_url:
             image = generate_with_segmind(prompt, identity_image_url)
-        else:
-            image = generate_with_dalle(prompt)
+            if image:
+                return image
+            image = generate_with_getimg(prompt, identity_image_url)
+            if image:
+                return image
+
+        return generate_with_dalle(prompt)
+
     except Exception as e:
-        # Propagate as exception for Flask to handle
         raise RuntimeError(f"Image generation failed: {e}")
 
-    # Validate result
-    if not image:
-        raise RuntimeError("Image generation returned no URL")
-    if isinstance(image, str) and image.startswith("["):
-        # Error string from lower-level call
-        raise RuntimeError(image.strip("[]"))
 
-    return image
-
-
+# ─── OpenAI DALL·E ──────────────────────────────────────────────
 def generate_with_dalle(prompt):
     try:
         response = client.images.generate(
@@ -56,6 +54,7 @@ def generate_with_dalle(prompt):
         raise RuntimeError(f"Unhandled Error in DALL·E: {e}")
 
 
+# ─── Segmind InstantID ──────────────────────────────────────────
 def generate_with_segmind(prompt, identity_image_url):
     try:
         headers = {
@@ -82,9 +81,44 @@ def generate_with_segmind(prompt, identity_image_url):
             return data.get("image")
         else:
             print(f"[Segmind Error] {response.status_code}: {response.text}")
-            # fallback to DALL·E
-            return generate_with_dalle(prompt)
+            return None
 
     except Exception as e:
         print(f"[Segmind Call Failed] {e}")
-        return generate_with_dalle(prompt)  # fallback to DALL·E if Segmind fails
+        return None
+
+
+# ─── Getimg (ControlNet Fallback) ──────────────────────────────
+def generate_with_getimg(prompt, identity_image_url):
+    try:
+        headers = {
+            "Authorization": f"Bearer {GETIMG_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": "controlnet",
+            "prompt": prompt,
+            "image_url": identity_image_url,
+            "control_type": "pose",
+            "guidance": 7,
+            "strength": 0.6,
+            "steps": 25
+        }
+
+        response = requests.post(
+            "https://api.getimg.ai/v1/stable-diffusion/controlnet",
+            headers=headers,
+            json=payload
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("image_url")
+        else:
+            print(f"[Getimg Error] {response.status_code}: {response.text}")
+            return None
+
+    except Exception as e:
+        print(f"[Getimg Call Failed] {e}")
+        return None
