@@ -105,7 +105,7 @@ def log_request():
     logger.info(f"{request.method} {request.path}")
 
 @app.route("/auth/request_code", methods=["POST", "OPTIONS"])
-@cross_origin(supports_credentials=True)
+
 def request_code():
     if request.method == "OPTIONS":
         return '', 200
@@ -125,7 +125,7 @@ def request_code():
     return jsonify({"success": True}), 200
 
 @app.route("/auth/verify_code", methods=["POST"])
-@cross_origin(supports_credentials=True)
+
 def verify_auth_code():
     data = request.get_json() or {}
     email = data.get("email")
@@ -154,7 +154,7 @@ def verify_auth_code():
     return response
 
 @app.route("/auth/logout", methods=["POST"])
-@cross_origin(supports_credentials=True)
+
 def logout():
     response = make_response(jsonify({"success": True}))
     cookie_args = {
@@ -172,7 +172,7 @@ def logout():
     return response
 
 @app.route("/chat", methods=["POST"])
-@cross_origin(supports_credentials=True)
+
 def chat():
     data = request.get_json() or {}
     user_id = data.get("user_id")
@@ -192,7 +192,7 @@ def chat():
     return jsonify({"response": reply})
 
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
-@cross_origin(supports_credentials=True)
+
 def chat_stream():
     if request.method == "OPTIONS":
         return "", 200
@@ -287,7 +287,7 @@ def chat_stream():
     )
 
 @app.route("/image", methods=["POST"])
-@cross_origin(supports_credentials=True)
+
 def generate_image():
     data = request.get_json() or {}
     prompt = data.get("prompt")
@@ -305,7 +305,7 @@ def generate_image():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/memory", methods=["GET", "POST"])
-@cross_origin(supports_credentials=True)
+
 def memory():
     if request.method == "POST":
         data = request.get_json() or {}
