@@ -286,24 +286,6 @@ def chat_stream():
         mimetype="text/event-stream"
     )
 
-@app.route("/image", methods=["POST"])
-
-def generate_image():
-    data = request.get_json() or {}
-    prompt = data.get("prompt")
-    user_id = data.get("user_id")
-    identity_image_url = data.get("identity_image_url")
-    if not prompt:
-        return jsonify({"error": "Missing prompt"}), 400
-    try:
-        url = generate_image_from_prompt(prompt, identity_image_url)
-        if url:
-            return jsonify({"imageUrl": url})
-        return jsonify({"error": "Image generation failed"}), 500
-    except Exception as e:
-        logger.exception("Error in /image")
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/memory", methods=["GET", "POST"])
 
 def memory():
