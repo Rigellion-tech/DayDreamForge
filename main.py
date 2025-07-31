@@ -1,38 +1,69 @@
 import os
 import json
+import re
 import random
 import string
 import datetime
 import logging
 
 from flask import Flask, request, jsonify, Response, stream_with_context, make_response
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 from openai import OpenAIError
+
 from auth_email import send_login_code
 from chat_agent import load_memory, save_memory, get_chat_response
-from image_generator import generate_image_from_prompt
+from image_generator import generate_image_from_prompt  # Patched function
 
-# ─── Logging Setup ───
+# ─── Logging Setup ────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── Flask App Setup ───
+# ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
+# Determine environment for cookie settings
 is_prod = app.config.get("ENV") == "production"
 
-# ─── CORS Configuration ───
+# ─── CORS Configuration ───────────────────────────────────────────
 CORS(
     app,
     origins=[
         "https://daydreamforge.com",
         "https://www.daydreamforge.com",
-        "http://localhost:3000",  # for local dev
-        "https://daydreamforge.onrender.com"  # optional, if frontend ever runs here
+        "https://daydreamforge.vercel.app",
+        "http://localhost:3000",
+        "https://daydreamforge.onrender.com",
     ],
     supports_credentials=True,
     allow_headers=["Content-Type"],
     methods=["GET", "POST", "OPTIONS"],
 )
+
+# ─── Routes ───────────────────────────────────────────────────────
+
+@app.route("/generate-image", methods=["POST"])
+def generate_image():
+    try:
+        data = request.json
+        prompt = data.get("prompt")
+        identity_image_url = data.get("identity_image_url")  # Optional
+
+        if not prompt:
+            return jsonify({"error": "Prompt is required"}), 400
+
+        logger.info(f"[IMAGE GENERATION] Prompt: {prompt}")
+        if identity_image_url:
+            logger.info(f"[IMAGE GENERATION] Identity Image Provided: {identity_image_url}")
+
+        image_url = generate_image_from_prompt(prompt, identity_image_url)
+
+        if image_url:
+            return jsonify({"image_url": image_url}), 200
+        else:
+            return jsonify({"error": "Image generation failed"}), 500
+
+    except Exception as e:
+        logger.exception("[ERROR] Image generation failed")
+        return jsonify({"error": str(e)}), 500
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
