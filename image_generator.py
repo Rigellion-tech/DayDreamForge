@@ -3,7 +3,7 @@ import time
 import requests
 from openai import OpenAI, OpenAIError
 from collections import defaultdict
-
+print("[DEBUG] Using image_generator.py from:", __file__)
 # Initialize clients and keys
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
