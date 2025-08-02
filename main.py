@@ -12,7 +12,7 @@ from openai import OpenAIError
 
 from auth_email import send_login_code
 from chat_agent import load_memory, save_memory, get_chat_response
-from image_generator import generate_image_from_prompt  # Patched function
+from image_generator import generate_image_from_prompt
 
 # ─── Logging Setup ────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # ─── Flask App Setup ──────────────────────────────────────────────
 app = Flask(__name__)
-# Determine environment for cookie settings
 is_prod = app.config.get("ENV") == "production"
 
 # ─── CORS Configuration ───────────────────────────────────────────
@@ -105,7 +104,6 @@ def log_request():
     logger.info(f"{request.method} {request.path}")
 
 @app.route("/auth/request_code", methods=["POST", "OPTIONS"])
-
 def request_code():
     if request.method == "OPTIONS":
         return '', 200
@@ -125,7 +123,6 @@ def request_code():
     return jsonify({"success": True}), 200
 
 @app.route("/auth/verify_code", methods=["POST"])
-
 def verify_auth_code():
     data = request.get_json() or {}
     email = data.get("email")
@@ -154,7 +151,6 @@ def verify_auth_code():
     return response
 
 @app.route("/auth/logout", methods=["POST"])
-
 def logout():
     response = make_response(jsonify({"success": True}))
     cookie_args = {
@@ -170,7 +166,7 @@ def logout():
         })
     response.set_cookie("user_id", "", **cookie_args)
     return response
-    
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json() or {}
@@ -182,33 +178,28 @@ def chat():
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
     memory = load_memory(user_id)
 
-    # PATCH: If both prompt and image are present, trigger Segmind/Getimg for generation
-    if image_url and message:
+    # --- PATCHED LOGIC: Always call Segmind/Getimg when image is present ---
+    if image_url:
         try:
-            logger.info("[/chat] Routing to generate_image_from_prompt (Segmind/Getimg)")
-            img_url = generate_image_from_prompt(message, image_url)
-            memory.append({"role": "user", "content": f"[prompt+image: {message} + {image_url}]"})
+            logger.info(f"[/chat] Routing to generate_image_from_prompt (Segmind/Getimg). prompt={message} | img={image_url}")
+            img_url = generate_image_from_prompt(message or "transform this image", image_url)
+            memory.append({"role": "user", "content": f"[prompt+image: {message or '[no message]'} + {image_url}]"})
             memory.append({"role": "assistant", "content": f"[Generated Image:]({img_url})"})
             save_memory(user_id, memory)
             return jsonify({"response": img_url, "imageUrl": img_url})
         except Exception as e:
-            logger.exception("Image generation failed in /chat")
+            logger.exception("Image generation failed in /chat (Segmind/Getimg)")
             return jsonify({"error": str(e)}), 500
 
-    # Fallback: Normal chat behavior for plain message or image-only
-    if image_url and not message:
-        memory.append({"role": "user", "content": f"[sent image: {image_url}]"})
-    elif message:
+    # --- Fallback: Normal chat behavior for plain message only ---
+    if message:
         memory.append({"role": "user", "content": message})
     reply = get_chat_response(message, user_id, image_url)
     memory.append({"role": "assistant", "content": reply})
     save_memory(user_id, memory)
     return jsonify({"response": reply})
 
-
-
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
-
 def chat_stream():
     if request.method == "OPTIONS":
         return "", 200
@@ -269,7 +260,7 @@ def chat_stream():
             stream = get_chat_response.__globals__["client"].chat.completions.create(
                 model="gpt-4o",
                 messages=payload,
-                temperature=0.55,  # PATCH: Lowered for wisdom/consistency
+                temperature=0.55,
                 stream=True
             )
             for chunk in stream:
@@ -303,7 +294,6 @@ def chat_stream():
     )
 
 @app.route("/memory", methods=["GET", "POST"])
-
 def memory():
     if request.method == "POST":
         data = request.get_json() or {}
