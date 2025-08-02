@@ -170,9 +170,8 @@ def logout():
         })
     response.set_cookie("user_id", "", **cookie_args)
     return response
-
+    
 @app.route("/chat", methods=["POST"])
-
 def chat():
     data = request.get_json() or {}
     user_id = data.get("user_id")
@@ -182,6 +181,19 @@ def chat():
         return jsonify({"error": "Missing user_id or message/image_url"}), 400
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
     memory = load_memory(user_id)
+
+    # 🟡 PATCH START
+    # If an image is present and the message looks like a generation request, use Segmind/Getimg
+    if image_url and message:
+        try:
+            # Note: Use the same logic as /generate-image
+            img_url = generate_image_from_prompt(message, image_url)
+            return jsonify({"response": f"[generated image: {img_url}]", "imageUrl": img_url})
+        except Exception as e:
+            logger.exception("Image generation failed in /chat")
+            return jsonify({"error": str(e)}), 500
+    # 🟡 PATCH END
+
     if image_url and not message:
         memory.append({"role": "user", "content": f"[sent image: {image_url}]"})
     elif message:
@@ -190,6 +202,7 @@ def chat():
     memory.append({"role": "assistant", "content": reply})
     save_memory(user_id, memory)
     return jsonify({"response": reply})
+
 
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
 
