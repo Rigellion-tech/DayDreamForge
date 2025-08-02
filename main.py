@@ -182,18 +182,20 @@ def chat():
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
     memory = load_memory(user_id)
 
-    # 🟡 PATCH START
-    # If an image is present and the message looks like a generation request, use Segmind/Getimg
+    # PATCH: If both prompt and image are present, trigger Segmind/Getimg for generation
     if image_url and message:
         try:
-            # Note: Use the same logic as /generate-image
+            logger.info("[/chat] Routing to generate_image_from_prompt (Segmind/Getimg)")
             img_url = generate_image_from_prompt(message, image_url)
-            return jsonify({"response": f"[generated image: {img_url}]", "imageUrl": img_url})
+            memory.append({"role": "user", "content": f"[prompt+image: {message} + {image_url}]"})
+            memory.append({"role": "assistant", "content": f"[Generated Image:]({img_url})"})
+            save_memory(user_id, memory)
+            return jsonify({"response": img_url, "imageUrl": img_url})
         except Exception as e:
             logger.exception("Image generation failed in /chat")
             return jsonify({"error": str(e)}), 500
-    # 🟡 PATCH END
 
+    # Fallback: Normal chat behavior for plain message or image-only
     if image_url and not message:
         memory.append({"role": "user", "content": f"[sent image: {image_url}]"})
     elif message:
@@ -202,6 +204,7 @@ def chat():
     memory.append({"role": "assistant", "content": reply})
     save_memory(user_id, memory)
     return jsonify({"response": reply})
+
 
 
 @app.route("/chat/stream", methods=["GET", "POST", "OPTIONS"])
