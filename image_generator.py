@@ -1,5 +1,6 @@
 import os
 import time
+import base64
 import logging
 import requests
 from typing import Optional
@@ -30,13 +31,19 @@ def _ensure_https_or_data_url(raw: Optional[str]) -> Optional[str]:
         return "https://" + s[len("http://") :]
     if s.startswith("https://"):
         return s
-    # Some providers return base64 without the data: prefix
     if s.startswith("data:image/"):
         return s
-    # Heuristic: long base64-like payload → wrap as PNG
+    # Heuristic for base64 payloads (e.g., Segmind "image")
     if len(s) > 100 and all(c.isalnum() or c in "+/=\n\r" for c in s[:120]):
         return "data:image/png;base64," + s.replace("\n", "")
     return s
+
+
+def _url_to_base64(url: str) -> str:
+    """Download an image and return base64-encoded content."""
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    return base64.b64encode(resp.content).decode("utf-8")
 
 
 # ---- Public Entrypoint ----
@@ -60,16 +67,12 @@ def generate_image_from_prompt(
 
     logger.info(
         "[GEN IMG] user=%s HQ=%s id_img=%s prompt=%r",
-        user_id,
-        high_quality,
-        bool(identity_image_url),
-        prompt,
+        user_id, high_quality, bool(identity_image_url), prompt,
     )
 
     # Prefer Segmind when identity/HQ is requested
     if identity_image_url or high_quality:
         logger.info("[Router] Prefer Segmind path first.")
-        # Segmind
         try:
             url = generate_with_segmind(prompt, identity_image_url)
             if url:
@@ -79,7 +82,6 @@ def generate_image_from_prompt(
         except Exception as e:
             logger.warning("[Router] Segmind error: %s. Trying Getimg.", e)
 
-        # Getimg
         try:
             url = generate_with_getimg(prompt, identity_image_url)
             if url:
@@ -89,7 +91,6 @@ def generate_image_from_prompt(
         except Exception as e:
             logger.warning("[Router] Getimg error: %s. Trying DALL·E.", e)
 
-        # DALL·E (last resort)
         return generate_with_dalle(prompt)
 
     # Default: try DALL·E first, then Segmind, then Getimg
@@ -97,7 +98,6 @@ def generate_image_from_prompt(
     try:
         return generate_with_dalle(prompt)
     except BadRequestError as e:
-        # Policy/bad request → try Segmind
         logger.warning("[Router] DALL·E policy/bad request: %s. Trying Segmind.", e)
     except (RateLimitError, APIError, OpenAIError) as e:
         logger.warning("[Router] DALL·E API error: %s. Trying Segmind.", e)
@@ -160,20 +160,27 @@ def generate_with_segmind(prompt: str, identity_image_url: Optional[str]) -> Opt
             return None
 
         headers = {
-            "X-API-KEY": SEGMIND_API_KEY,
+            "x-api-key": SEGMIND_API_KEY,   # header name per Segmind docs
             "Content-Type": "application/json",
         }
+
+        face_b64 = _url_to_base64(identity_image_url)
+
         payload = {
             "prompt": prompt,
-            "identity_image": identity_image_url,  # URL of the identity image
-            "model": "instantid",
-            "enhance_prompt": True,
-            "scheduler": "DPM++ SDE Karras",
+            "face_image": face_b64,          # base64 identity image
+            "negative_prompt": "lowquality, badquality, sketches",
+            "samples": 1,
             "num_inference_steps": 25,
             "guidance_scale": 6.5,
+            "identity_strength": 0.8,
+            "adapter_strength": 0.8,
+            "enhance_face_region": True,
+            "base64": True,                  # request base64 in JSON response
         }
+
         resp = requests.post(
-            "https://api.segmind.com/v1/sd/instantid",
+            "https://api.segmind.com/v1/instantid",  # fixed endpoint
             json=payload,
             headers=headers,
             timeout=60,
@@ -185,14 +192,11 @@ def generate_with_segmind(prompt: str, identity_image_url: Optional[str]) -> Opt
             return None
 
         data = resp.json() or {}
-        # Some Segmind endpoints return 'image' (base64); others may return 'images' list
-        base64_img = data.get("image") or (data.get("images") or [None])[0]
-        url = data.get("url") or data.get("image_url")
-
-        # Prefer direct URL; otherwise wrap base64
-        final = _ensure_https_or_data_url(url or base64_img)
-        logger.info("[Segmind] Final URL present=%s", bool(final))
-        return final
+        img_b64 = data.get("image") or (data.get("images") or [None])[0]
+        if not img_b64:
+            logger.error("[Segmind] No image in response.")
+            return None
+        return f"data:image/png;base64,{img_b64}"
     except Exception as e:
         logger.exception("[Segmind] Exception")
         return None
@@ -214,12 +218,11 @@ def generate_with_getimg(prompt: str, identity_image_url: Optional[str]) -> Opti
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "controlnet",
             "prompt": prompt,
-            "image_url": identity_image_url,
-            "control_type": "pose",
-            "guidance": 7,
+            "image_url": identity_image_url,  # source image
+            "controlnet": "pose",             # correct key (not control_type)
             "strength": 0.6,
+            "guidance": 7,
             "steps": 25,
         }
 
