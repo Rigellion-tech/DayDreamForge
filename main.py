@@ -39,30 +39,43 @@ CORS(
 
 # ─── Routes ───────────────────────────────────────────────────────
 
-@app.route("/generate-image", methods=["POST"])
+@app.route("/generate-image", methods=["POST", "OPTIONS"])
 def generate_image():
+    # Handle preflight cleanly
+    if request.method == "OPTIONS":
+        return "", 204
     try:
-        data = request.json
+        data = request.get_json() or {}
         prompt = data.get("prompt")
         identity_image_url = data.get("identity_image_url")  # Optional
+        user_id = data.get("user_id") or "global"
+        use_high_quality = bool(data.get("high_quality", False))
 
         if not prompt:
             return jsonify({"error": "Prompt is required"}), 400
 
-        logger.info(f"[IMAGE GENERATION] Prompt: {prompt}")
-        if identity_image_url:
-            logger.info(f"[IMAGE GENERATION] Identity Image Provided: {identity_image_url}")
+        logger.info(
+            "[IMAGE GENERATION] prompt=%r id_img=%s HQ=%s user=%s",
+            prompt, bool(identity_image_url), use_high_quality, user_id
+        )
 
-        image_url = generate_image_from_prompt(prompt, identity_image_url)
+        image_url = generate_image_from_prompt(
+            prompt,
+            identity_image_url=identity_image_url,
+            user_id=user_id,
+            high_quality=use_high_quality,
+        )
 
         if image_url:
-            return jsonify({"image_url": image_url}), 200
+            # Standardize to camelCase for frontend
+            return jsonify({"imageUrl": image_url}), 200
         else:
             return jsonify({"error": "Image generation failed"}), 500
 
     except Exception as e:
         logger.exception("[ERROR] Image generation failed")
         return jsonify({"error": str(e)}), 500
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEMORY_DIR = os.path.join(BASE_DIR, "chat_memories")
@@ -178,17 +191,25 @@ def chat():
     logger.info(f"[chat] user_id={user_id!r}, message={message!r}, image_url={image_url!r}")
     memory = load_memory(user_id)
 
-    # --- PATCHED LOGIC: Always call Segmind/Getimg when image is present ---
+    # If an image is provided, prefer Segmind/Getimg (HQ path)
     if image_url:
         try:
-            logger.info(f"[/chat] Routing to generate_image_from_prompt (Segmind/Getimg). prompt={message} | img={image_url}")
-            img_url = generate_image_from_prompt(message or "transform this image", image_url)
+            logger.info(
+                "[/chat] Routing to generate_image_from_prompt. prompt=%r | img=%s | HQ=%s",
+                message, image_url, True
+            )
+            img_url = generate_image_from_prompt(
+                message or "transform this image",
+                identity_image_url=image_url,
+                user_id=user_id,
+                high_quality=True,  # <— force HQ/Segmind-first when image is present
+            )
             memory.append({"role": "user", "content": f"[prompt+image: {message or '[no message]'} + {image_url}]"})
             memory.append({"role": "assistant", "content": f"[Generated Image:]({img_url})"})
             save_memory(user_id, memory)
             return jsonify({"response": img_url, "imageUrl": img_url})
         except Exception as e:
-            logger.exception("Image generation failed in /chat (Segmind/Getimg)")
+            logger.exception("Image generation failed in /chat (Segmind/Getimg/DALL·E)")
             return jsonify({"error": str(e)}), 500
 
     # --- Fallback: Normal chat behavior for plain message only ---
